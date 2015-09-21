@@ -48,45 +48,56 @@ func main() {
 		}
 	}
 
+	var cmd *exec.Cmd
+	var err error
+	var children []os.FileInfo
+	var version string
+
 	for label, c := range couples {
 		// Launch the command to install the boards
-		cmd := exec.Command("xvfb-run", *arduino, "--install-boards", label)
+		cmd = exec.Command("xvfb-run", *arduino, "--install-boards", label)
+		log.Println(cmd.Args)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
-		err := cmd.Run()
+		err = cmd.Run()
 		if err != nil {
 			log.Println(err.Error())
-			os.Exit(1)
+			// There's no need to exit if an architecture has already been installed
 		}
 
 		// Ensure that the correct folder exists
-		cmd = exec.Command("mkdir", "-p /usr/src/"+c.Platform+"/hardware/")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err = cmd.Run()
+		err = os.MkdirAll("usr/src/"+c.Platform+"/hardware/", 0777)
+
 		if err != nil {
 			log.Println(err.Error())
 			os.Exit(1)
 		}
 
-		archFolder := "-rf /usr/src/" + c.Platform + "/hardware/" + c.Architecture
+		archFolder := "/usr/src/" + c.Platform + "/hardware/" + c.Architecture
 
 		// remove the old folders
-		cmd = exec.Command("rm", archFolder)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err = cmd.Run()
+		err = os.RemoveAll(archFolder)
+
 		if err != nil {
 			log.Println(err.Error())
 			os.Exit(1)
 		}
 
-		// Link the new folders
+		// Get the version
 		installedFolder := "/home/vagrant/.arduino15/packages/" + c.Platform + "/hardware/" + c.Architecture
-		cmd = exec.Command("ln", "-sf "+installedFolder+" "+archFolder)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err = cmd.Run()
+
+		children, err = ioutil.ReadDir(installedFolder)
+
+		if err != nil {
+			log.Println(err.Error())
+			os.Exit(1)
+		}
+
+		if len(children) > 0 {
+			version = children[0].Name()
+			err = os.Symlink(installedFolder+"/"+string(version), archFolder)
+		}
+
 		if err != nil {
 			log.Println(err.Error())
 			os.Exit(1)
