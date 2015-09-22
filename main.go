@@ -69,6 +69,7 @@ func main() {
 		err = os.MkdirAll("usr/src/"+c.Platform+"/hardware/", 0777)
 
 		if err != nil {
+			log.Println("Error during creation of folder " + "usr/src/" + c.Platform + "/hardware/")
 			log.Println(err.Error())
 			os.Exit(1)
 		}
@@ -79,6 +80,7 @@ func main() {
 		err = os.RemoveAll(archFolder)
 
 		if err != nil {
+			log.Println("Error during removal of folder " + archFolder)
 			log.Println(err.Error())
 			os.Exit(1)
 		}
@@ -89,6 +91,7 @@ func main() {
 		children, err = ioutil.ReadDir(installedFolder)
 
 		if err != nil {
+			log.Println("Error during reading of folder " + installedFolder)
 			log.Println(err.Error())
 			os.Exit(1)
 		}
@@ -99,6 +102,7 @@ func main() {
 		}
 
 		if err != nil {
+			log.Println("Error during linking of folder " + installedFolder + "/" + string(version))
 			log.Println(err.Error())
 			os.Exit(1)
 		}
