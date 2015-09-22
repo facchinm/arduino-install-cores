@@ -66,7 +66,7 @@ func main() {
 		}
 
 		// Ensure that the correct folder exists
-		err = os.MkdirAll("usr/src/"+c.Platform+"/hardware/", 0777)
+		err = os.MkdirAll("/usr/src/"+c.Platform+"/hardware/", 0777)
 
 		if err != nil {
 			log.Println("Error during creation of folder " + "usr/src/" + c.Platform + "/hardware/")
