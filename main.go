@@ -68,7 +68,12 @@ func main() {
 		}
 
 		// Ensure that the correct folder exists
-		hardwareFolder := filepath.Join("/usr/src/", c.Platform, "/hardware/")
+		hardwareFolder, err := filepath.Abs(filepath.Join("/usr/src/", c.Platform, "/hardware/"))
+		if err != nil {
+			log.Println("Error during creation of folder " + hardwareFolder)
+			log.Println(err.Error())
+			os.Exit(1)
+		}
 		err = os.MkdirAll(hardwareFolder, 0777)
 
 		if err != nil {
@@ -77,9 +82,15 @@ func main() {
 			os.Exit(1)
 		}
 
-		archFolder := filepath.Join(hardwareFolder, c.Architecture)
-
 		// remove the old folders
+		archFolder, err := filepath.Abs(filepath.Join(hardwareFolder, c.Architecture))
+
+		if err != nil {
+			log.Println("Error during removal of folder " + archFolder)
+			log.Println(err.Error())
+			os.Exit(1)
+		}
+
 		err = os.RemoveAll(archFolder)
 
 		if err != nil {
@@ -89,7 +100,13 @@ func main() {
 		}
 
 		// Get the version
-		installedFolder := filepath.Join(*home, "/packages/", c.Platform, "/hardware/", c.Architecture)
+		installedFolder, err := filepath.Abs(filepath.Join(*home, "/packages/", c.Platform, "/hardware/", c.Architecture))
+
+		if err != nil {
+			log.Println("Error during reading of folder " + installedFolder)
+			log.Println(err.Error())
+			os.Exit(1)
+		}
 
 		children, err = ioutil.ReadDir(installedFolder)
 
@@ -99,13 +116,21 @@ func main() {
 			os.Exit(1)
 		}
 
+		sourceFolder, err := filepath.Abs(filepath.Join(installedFolder, string(version)))
+
+		if err != nil {
+			log.Println("Error during linking of folder " + sourceFolder)
+			log.Println(err.Error())
+			os.Exit(1)
+		}
+
 		if len(children) > 0 {
 			version = children[0].Name()
-			err = os.Symlink(filepath.Join(installedFolder, string(version)), archFolder)
+			err = os.Symlink(sourceFolder, archFolder)
 		}
 
 		if err != nil {
-			log.Println("Error during linking of folder " + filepath.Join(installedFolder, string(version)))
+			log.Println("Error during linking of folder " + sourceFolder)
 			log.Println(err.Error())
 			os.Exit(1)
 		}
