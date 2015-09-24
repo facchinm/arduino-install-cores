@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 )
 
 var (
@@ -67,15 +68,16 @@ func main() {
 		}
 
 		// Ensure that the correct folder exists
-		err = os.MkdirAll("/usr/src/"+c.Platform+"/hardware/", 0777)
+		hardwareFolder := filepath.Join("/usr/src/", c.Platform, "/hardware/")
+		err = os.MkdirAll(hardwareFolder, 0777)
 
 		if err != nil {
-			log.Println("Error during creation of folder " + "usr/src/" + c.Platform + "/hardware/")
+			log.Println("Error during creation of folder " + hardwareFolder)
 			log.Println(err.Error())
 			os.Exit(1)
 		}
 
-		archFolder := "/usr/src/" + c.Platform + "/hardware/" + c.Architecture
+		archFolder := filepath.Join(hardwareFolder, c.Architecture)
 
 		// remove the old folders
 		err = os.RemoveAll(archFolder)
@@ -87,7 +89,7 @@ func main() {
 		}
 
 		// Get the version
-		installedFolder := *home + "/packages/" + c.Platform + "/hardware/" + c.Architecture
+		installedFolder := filepath.Join(*home, "/packages/", c.Platform, "/hardware/", c.Architecture)
 
 		children, err = ioutil.ReadDir(installedFolder)
 
@@ -99,11 +101,11 @@ func main() {
 
 		if len(children) > 0 {
 			version = children[0].Name()
-			err = os.Symlink(installedFolder+"/"+string(version), archFolder)
+			err = os.Symlink(filepath.Join(installedFolder, string(version)), archFolder)
 		}
 
 		if err != nil {
-			log.Println("Error during linking of folder " + installedFolder + "/" + string(version))
+			log.Println("Error during linking of folder " + filepath.Join(installedFolder, string(version)))
 			log.Println(err.Error())
 			os.Exit(1)
 		}
