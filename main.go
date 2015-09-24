@@ -13,6 +13,7 @@ import (
 var (
 	url     = flag.String("url", "http://downloads.arduino.cc/packages/package_index.json", "The url of the file json containing the package index")
 	arduino = flag.String("arduino", "/usr/src/arduino/arduino", "The path of the arduino executable")
+	home    = flag.String("home", "/home/vagrant/.arduino15", "The path where the arduino executable downloads the cores")
 )
 
 type index struct {
@@ -86,7 +87,7 @@ func main() {
 		}
 
 		// Get the version
-		installedFolder := "/home/vagrant/.arduino15/packages/" + c.Platform + "/hardware/" + c.Architecture
+		installedFolder := *home + "/packages/" + c.Platform + "/hardware/" + c.Architecture
 
 		children, err = ioutil.ReadDir(installedFolder)
 
