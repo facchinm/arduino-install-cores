@@ -65,10 +65,12 @@ func main() {
 
 	flag.Parse()
 
-	resp, _ := http.Get(*url)
+	resp, err := http.Get(*url)
+	isError(err)
 
 	defer resp.Body.Close()
-	body, _ := ioutil.ReadAll(resp.Body)
+	body, err := ioutil.ReadAll(resp.Body)
+	isError(err)
 
 	var data index
 
@@ -76,7 +78,8 @@ func main() {
 
 	for _, p := range data.Packages {
 		for _, a := range p.Platforms {
-			destination, _ := filepath.Abs(filepath.Join(*folder, p.Name, a.Architecture, a.Name))
+			destination, err := filepath.Abs(filepath.Join(*folder, p.Name, a.Architecture, a.Name))
+			isError(err)
 			log.Printf("Downloading %s:%s:%s in %s", p.Name, a.Architecture, a.Version, filepath.Dir(destination))
 			download(a.URL, destination)
 			unpack(destination)
