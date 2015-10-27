@@ -3,18 +3,19 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 var (
-	url     = flag.String("url", "http://downloads.arduino.cc/packages/package_index.json", "The url of the file json containing the package index")
-	arduino = flag.String("arduino", "/usr/src/arduino/arduino", "The path of the arduino executable")
-	home    = flag.String("home", "/home/vagrant/.arduino15", "The path where the arduino executable downloads the cores")
+	url    = flag.String("url", "http://downloads.arduino.cc/packages/package_index.json", "The url of the file json containing the package index")
+	folder = flag.String("folder", "/opt/cores", "The folder where to put the downloaded cores")
 )
 
 type index struct {
@@ -22,16 +23,48 @@ type index struct {
 		Name      string `json:"name"`
 		Platforms []struct {
 			Architecture string `json:"architecture"`
+			Version      string `json:"version"`
+			URL          string `json:"url"`
+			Name         string `json:"archiveFileName"`
 		} `json:"platforms"`
 	} `json:"packages"`
 }
 
-type couple struct {
-	Platform     string
-	Architecture string
+func isError(err error) {
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+}
+
+func download(url string, destination string) {
+	err := os.MkdirAll(filepath.Dir(destination), 0755)
+	isError(err)
+	out, err := os.Create(destination)
+	isError(err)
+	resp, err := http.Get(url)
+	isError(err)
+	defer resp.Body.Close()
+	_, err = io.Copy(out, resp.Body)
+	isError(err)
+}
+
+func unpack(file string) {
+	var cmd *exec.Cmd
+	if strings.HasSuffix(file, "zip") {
+		cmd = exec.Command("unzip", "-qq", filepath.Base(file))
+	} else {
+		cmd = exec.Command("tar", "xf", filepath.Base(file))
+	}
+	cmd.Dir = filepath.Dir(file)
+	err := cmd.Run()
+	isError(err)
+	os.Remove(file)
 }
 
 func main() {
+
+	flag.Parse()
+
 	resp, _ := http.Get(*url)
 
 	defer resp.Body.Close()
@@ -39,100 +72,14 @@ func main() {
 
 	var data index
 
-	var couples = make(map[string]*couple)
-
 	json.Unmarshal(body, &data)
 
 	for _, p := range data.Packages {
 		for _, a := range p.Platforms {
-			c := couple{Platform: p.Name, Architecture: a.Architecture}
-			couples[c.Platform+":"+c.Architecture] = &c
-		}
-	}
-
-	var cmd *exec.Cmd
-	var err error
-	var children []os.FileInfo
-	var version string
-
-	for label, c := range couples {
-		// Launch the command to install the boards
-		cmd = exec.Command("xvfb-run", *arduino, "--install-boards", label)
-		log.Println(cmd.Args)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		err = cmd.Run()
-		if err != nil {
-			log.Println(err.Error())
-			// There's no need to exit if an architecture has already been installed
-		}
-
-		// Ensure that the correct folder exists
-		hardwareFolder, err := filepath.Abs(filepath.Join("/usr/src/", c.Platform, "/hardware/"))
-		if err != nil {
-			log.Println("Error during creation of folder " + hardwareFolder)
-			log.Println(err.Error())
-			os.Exit(1)
-		}
-		err = os.MkdirAll(hardwareFolder, 0777)
-
-		if err != nil {
-			log.Println("Error during creation of folder " + hardwareFolder)
-			log.Println(err.Error())
-			os.Exit(1)
-		}
-
-		// remove the old folders
-		archFolder, err := filepath.Abs(filepath.Join(hardwareFolder, c.Architecture))
-
-		if err != nil {
-			log.Println("Error during removal of folder " + archFolder)
-			log.Println(err.Error())
-			os.Exit(1)
-		}
-
-		err = os.RemoveAll(archFolder)
-
-		if err != nil {
-			log.Println("Error during removal of folder " + archFolder)
-			log.Println(err.Error())
-			os.Exit(1)
-		}
-
-		// Get the version
-		installedFolder, err := filepath.Abs(filepath.Join(*home, "/packages/", c.Platform, "/hardware/", c.Architecture))
-
-		if err != nil {
-			log.Println("Error during reading of folder " + installedFolder)
-			log.Println(err.Error())
-			os.Exit(1)
-		}
-
-		children, err = ioutil.ReadDir(installedFolder)
-
-		if err != nil {
-			log.Println("Error during reading of folder " + installedFolder)
-			log.Println(err.Error())
-			os.Exit(1)
-		}
-
-		sourceFolder, err := filepath.Abs(filepath.Join(installedFolder, string(version)))
-
-		if err != nil {
-			log.Println("Error during linking of folder " + sourceFolder)
-			log.Println(err.Error())
-			os.Exit(1)
-		}
-
-		if len(children) > 0 {
-			version = children[0].Name()
-			err = os.Symlink(sourceFolder, archFolder)
-		}
-
-		if err != nil {
-			log.Println("Error during linking of folder " + sourceFolder)
-			log.Println(err.Error())
-			os.Exit(1)
+			destination, _ := filepath.Abs(filepath.Join(*folder, p.Name, a.Architecture, a.Name))
+			log.Printf("Downloading %s:%s:%s in %s", p.Name, a.Architecture, a.Version, filepath.Dir(destination))
+			download(a.URL, destination)
+			unpack(destination)
 		}
 	}
 
