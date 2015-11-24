@@ -54,6 +54,25 @@ func download(url string, destination string) {
 	isError(err)
 }
 
+func cleanup(directory string) {
+	files, err := ioutil.ReadDir(directory)
+	isError(err)
+	if 1 == len(files) {
+		folder := filepath.Join(directory, files[0].Name())
+		files, err = ioutil.ReadDir(folder)
+		isError(err)
+		for _, file := range files {
+			var cmd *exec.Cmd
+			cmd = exec.Command("mv", file.Name(), directory)
+			cmd.Dir = folder
+			err := cmd.Run()
+			isError(err)
+		}
+
+		os.Remove(folder)
+	}
+}
+
 func unpack(file string) {
 	var cmd *exec.Cmd
 	if strings.HasSuffix(file, "zip") {
@@ -65,6 +84,7 @@ func unpack(file string) {
 	err := cmd.Run()
 	isError(err)
 	os.Remove(file)
+	cleanup(filepath.Dir(file))
 }
 
 func main() {
