@@ -30,6 +30,12 @@ type index struct {
 	} `json:"packages"`
 }
 
+type core struct {
+	Version     string
+	URL         string
+	Destination string
+}
+
 func isError(err error) {
 	if err != nil {
 		log.Fatal(err.Error())
@@ -76,14 +82,27 @@ func main() {
 
 	json.Unmarshal(body, &data)
 
+	cores := make(map[string]core)
+
 	for _, p := range data.Packages {
 		for _, a := range p.Platforms {
 			destination, err := filepath.Abs(filepath.Join(*folder, p.Name, a.Architecture, a.Name))
 			isError(err)
-			log.Printf("Downloading %s:%s:%s in %s", p.Name, a.Architecture, a.Version, filepath.Dir(destination))
-			download(a.URL, destination)
-			unpack(destination)
+
+			_, ok := cores[p.Name+":"+a.Architecture]
+
+			if !ok || cores[p.Name+":"+a.Architecture].Version < a.Version {
+				cores[p.Name+":"+a.Architecture] = core{a.Version, a.URL, destination}
+			}
+
 		}
+	}
+
+	for key, value := range cores {
+		log.Printf("Downloading %s:%s in %s", key, value.Version, filepath.Dir(value.Destination))
+		download(value.URL, value.Destination)
+		log.Printf("Unpacking %s:%s in %s", key, value.Version, filepath.Dir(value.Destination))
+		unpack(value.Destination)
 	}
 
 	os.Exit(0)
