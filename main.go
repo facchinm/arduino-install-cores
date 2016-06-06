@@ -17,9 +17,10 @@ import (
 )
 
 var (
-	url          = flag.String("url", "http://downloads.arduino.cc/packages/package_index.json", "The url of the file json containing the package index")
-	coreName     = flag.String("core", "avr", "The folder where to put the downloaded cores")
-	corePackager = flag.String("packager", "arduino", "The folder where to put the downloaded tools")
+	url             = flag.String("url", "http://downloads.arduino.cc/packages/package_index.json", "The url of the file json containing the package index")
+	coreName        = flag.String("core", "avr", "The folder where to put the downloaded cores")
+	corePackager    = flag.String("packager", "arduino", "The folder where to put the downloaded tools")
+	generateAntRule = flag.Bool("ant", false, "The folder where to put the downloaded tools")
 )
 
 type core struct {
@@ -115,6 +116,61 @@ func main() {
 		for _, t := range p.Tools {
 			tools[p.Name+":"+t.Name+":"+t.Version] = t
 		}
+	}
+
+	if *generateAntRule {
+		// Download cores and tools
+		for _, c := range cores {
+			if c.Maintainer == *corePackager && c.Architecture == *coreName {
+
+				toolStr := "TOOL"
+				toolIndex := 1
+
+				for _, t := range c.Dependencies {
+
+					tt := tools[t.Packager+":"+t.Name+":"+t.Version]
+
+					if strings.Contains(t.Name, "gcc") || strings.Contains(tt.Systems[0].URL, "toolchain") {
+						toolStr = "COMPILER"
+					} else {
+						toolStr = "TOOL" + strconv.Itoa(toolIndex)
+						toolIndex++
+					}
+
+					fmt.Printf("<property name=\"BUNDLED_%s\" value=\"%s\"/>\n", toolStr, t.Name)
+					fmt.Printf("<property name=\"BUNDLED_%s_VERSION\" value=\"%s\"/>\n", toolStr, t.Version)
+
+					url := strings.Split(tt.Systems[0].URL, "/")
+					fmt.Printf("<property name=\"BUNDLED_%s_BASEURL\" value=\"%s\"/>\n", toolStr, strings.Join(url[:len(url)-1], "/"))
+
+					for _, s := range tt.Systems {
+
+						cksum := strings.Split(s.Checksum, ":")[1]
+						url_slc := strings.Split(s.URL, "/")
+						url := url_slc[len(url_slc)-1]
+
+						if smetrics.Jaro(s.Host, "x86_64-linux-gnu") > 0.9 {
+							fmt.Printf("<property name=\"LINUX64_BUNDLED_%s_ARCHIVE\" value=\"%s\"/>\n", toolStr, url)
+							fmt.Printf("<property name=\"LINUX64_BUNDLED_%s_SHA256\" value=\"%s\"/>\n", toolStr, cksum)
+						} else if smetrics.Jaro(s.Host, "i686-linux-gnu") > 0.9 {
+							fmt.Printf("<property name=\"LINUX32_BUNDLED_%s_ARCHIVE\" value=\"%s\"/>\n", toolStr, url)
+							fmt.Printf("<property name=\"LINUX32_BUNDLED_%s_SHA256\" value=\"%s\"/>\n", toolStr, cksum)
+						} else if smetrics.Jaro(s.Host, "arm-linux-gnueabihf") > 0.9 {
+							fmt.Printf("<property name=\"LINUXARM_BUNDLED_%s_ARCHIVE\" value=\"%s\"/>\n", toolStr, url)
+							fmt.Printf("<property name=\"LINUXARM_BUNDLED_%s_SHA256\" value=\"%s\"/>\n", toolStr, cksum)
+						} else if strings.Contains(s.Host, "apple-darwin") {
+							fmt.Printf("<property name=\"MACOSX_BUNDLED_%s_ARCHIVE\" value=\"%s\"/>\n", toolStr, url)
+							fmt.Printf("<property name=\"MACOSX_BUNDLED_%s_SHA256\" value=\"%s\"/>\n", toolStr, cksum)
+						} else if smetrics.Jaro(s.Host, "i686-mingw32") > 0.9 {
+							fmt.Printf("<property name=\"WINDOWS_BUNDLED_%s_ARCHIVE\" value=\"%s\"/>\n", toolStr, url)
+							fmt.Printf("<property name=\"WINDOWS_BUNDLED_%s_SHA256\" value=\"%s\"/>\n", toolStr, cksum)
+						}
+					}
+				}
+			}
+		}
+		fmt.Println()
+		os.Exit(0)
 	}
 
 	// Download cores and tools
