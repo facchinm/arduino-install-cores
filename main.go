@@ -3,27 +3,32 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"io"
+	"fmt"
+	"github.com/xrash/smetrics"
+	_ "io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
+	_ "os/exec"
+	_ "path/filepath"
+	"strconv"
 	"strings"
 )
 
 var (
-	url        = flag.String("url", "http://downloads.arduino.cc/packages/package_index.json", "The url of the file json containing the package index")
-	coreFolder = flag.String("coreFolder", "/opt/cores", "The folder where to put the downloaded cores")
-	toolFolder = flag.String("toolFolder", "/opt/tools", "The folder where to put the downloaded tools")
+	url          = flag.String("url", "http://downloads.arduino.cc/packages/package_index.json", "The url of the file json containing the package index")
+	coreName     = flag.String("core", "avr", "The folder where to put the downloaded cores")
+	corePackager = flag.String("packager", "arduino", "The folder where to put the downloaded tools")
 )
 
 type core struct {
 	Architecture string `json:"architecture"`
 	Version      string `json:"version"`
 	URL          string `json:"url"`
+	Maintainer   string `json:"maintainer"`
 	Name         string `json:"archiveFileName"`
+	Checksum     string `json:"checksum"`
 	destination  string
 	Dependencies []struct {
 		Packager string `json:"packager"`
@@ -36,9 +41,10 @@ type tool struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 	Systems []struct {
-		Host string `json:"host"`
-		URL  string `json:"url"`
-		Name string `json:"archiveFileName"`
+		Host     string `json:"host"`
+		URL      string `json:"url"`
+		Name     string `json:"archiveFileName"`
+		Checksum string `json:"checksum"`
 	} `json:"systems"`
 	url         string
 	destination string
@@ -46,10 +52,18 @@ type tool struct {
 
 type index struct {
 	Packages []struct {
-		Name      string `json:"name"`
-		Platforms []core `json:"platforms"`
-		Tools     []tool `json:"tools"`
+		Name       string `json:"name"`
+		Maintainer string `json:"maintainer"`
+		Platforms  []core `json:"platforms"`
+		Tools      []tool `json:"tools"`
 	} `json:"packages"`
+}
+
+var systems = map[string]string{
+	"linuxamd64":  "x86_64-linux-gnu",
+	"linux386":    "i686-linux-gnu",
+	"darwinamd64": "apple-darwin",
+	"windows386":  "i686-mingw32",
 }
 
 func isError(err error, context string) {
@@ -59,63 +73,6 @@ func isError(err error, context string) {
 		}
 		log.Fatal(err.Error())
 	}
-}
-
-func download(url string, destination string) {
-	err := os.MkdirAll(filepath.Dir(destination), 0755)
-	isError(err, "")
-	out, err := os.Create(destination)
-	isError(err, "")
-	resp, err := http.Get(url)
-	isError(err, "")
-	defer resp.Body.Close()
-	_, err = io.Copy(out, resp.Body)
-	isError(err, "")
-}
-
-func cleanup(directory string) {
-	temp, err := ioutil.TempDir("", "")
-	isError(err, "")
-	files, err := ioutil.ReadDir(directory)
-	isError(err, "")
-	if 1 == len(files) {
-		folder := filepath.Join(directory, files[0].Name())
-		// Move to a tmp directory
-		files, err = ioutil.ReadDir(folder)
-		isError(err, "")
-		for _, file := range files {
-			var cmd *exec.Cmd
-			cmd = exec.Command("mv", file.Name(), temp)
-			cmd.Dir = folder
-			output, err := cmd.CombinedOutput()
-			isError(err, string(output))
-		}
-		err = os.RemoveAll(folder)
-		isError(err, "")
-		// move to the directory
-		files, err = ioutil.ReadDir(temp)
-		isError(err, "")
-		for _, file := range files {
-			var cmd *exec.Cmd
-			cmd = exec.Command("mv", file.Name(), directory)
-			cmd.Dir = temp
-			output, err := cmd.CombinedOutput()
-			isError(err, string(output))
-		}
-	}
-}
-
-func unpack(file string) {
-	var cmd *exec.Cmd
-	if strings.HasSuffix(file, "zip") {
-		cmd = exec.Command("unzip", "-qq", filepath.Base(file))
-	} else {
-		cmd = exec.Command("tar", "xf", filepath.Base(file))
-	}
-	cmd.Dir = filepath.Dir(file)
-	output, err := cmd.CombinedOutput()
-	isError(err, string(output))
-	os.Remove(file)
 }
 
 func main() {
@@ -139,7 +96,6 @@ func main() {
 
 	for _, p := range data.Packages {
 		for _, a := range p.Platforms {
-			destination, err := filepath.Abs(filepath.Join(*coreFolder, p.Name, a.Architecture, a.Name))
 			isError(err, "")
 
 			_, ok := cores[p.Name+":"+a.Architecture]
@@ -147,8 +103,11 @@ func main() {
 			if !ok || cores[p.Name+":"+a.Architecture].Version < a.Version {
 				cores[p.Name+":"+a.Architecture] = core{
 					Version:      a.Version,
+					Name:         a.Name,
+					Architecture: a.Architecture,
+					Maintainer:   p.Name,
 					URL:          a.URL,
-					destination:  destination,
+					Checksum:     strings.Split(a.Checksum, ":")[1],
 					Dependencies: a.Dependencies,
 				}
 			}
@@ -159,29 +118,57 @@ func main() {
 	}
 
 	// Download cores and tools
-	for name, c := range cores {
-		log.Printf("Downloading %s:%s in %s", name, c.Version, filepath.Dir(c.destination))
-		download(c.URL, c.destination)
-		log.Printf("Unpacking %s:%s in %s", name, c.Version, filepath.Dir(c.destination))
-		unpack(c.destination)
-		log.Printf("Cleanup %s", filepath.Dir(c.destination))
-		cleanup(filepath.Dir(c.destination))
-		for _, t := range c.Dependencies {
-			tt := tools[t.Packager+":"+t.Name+":"+t.Version]
-			for _, s := range tt.Systems {
-				if "x86_64-linux-gnu" == s.Host || "x86_64-pc-linux-gnu" == s.Host {
-					tt.destination, err = filepath.Abs(filepath.Join(*toolFolder, t.Name, t.Version, s.Name))
-					isError(err, "")
-					log.Printf("Downloading %s:%s in %s", t.Name, t.Version, filepath.Dir(tt.destination))
-					download(s.URL, tt.destination)
-					log.Printf("Unpacking %s:%s in %s", t.Name, t.Version, filepath.Dir(tt.destination))
-					unpack(tt.destination)
-					log.Printf("Cleanup %s", filepath.Dir(tt.destination))
-					cleanup(filepath.Dir(tt.destination))
+	for _, c := range cores {
+		if c.Maintainer == *corePackager && c.Architecture == *coreName {
+			fmt.Printf("-DBUNDLED_CORE=%s -DBUNDLED_CORE_MAINTAINER=%s ", *coreName, *corePackager)
+			fmt.Printf("-DBUNDLED_CORE_VERSION=%s -DBUNDLED_CORE_ARCHIVE=%s ", c.Version, c.Name)
+			fmt.Printf("-DBUNDLED_CORE_SHA256=%s -DBUNDLED_CORE_URL=%s ", c.Checksum, c.URL)
+
+			toolStr := "TOOL"
+			toolIndex := 1
+
+			for _, t := range c.Dependencies {
+
+				tt := tools[t.Packager+":"+t.Name+":"+t.Version]
+
+				if strings.Contains(t.Name, "gcc") || strings.Contains(tt.Systems[0].URL, "toolchain") {
+					toolStr = "COMPILER"
+				} else {
+					toolStr = "TOOL" + strconv.Itoa(toolIndex)
+					toolIndex++
+				}
+
+				fmt.Printf("-DBUNDLED_%s=%s -DBUNDLED_%s_VERSION=%s ", toolStr, t.Name, toolStr, t.Version)
+
+				url := strings.Split(tt.Systems[0].URL, "/")
+				fmt.Printf("-DBUNDLED_%s_BASEURL=%s ", toolStr, strings.Join(url[:len(url)-1], "/"))
+
+				for _, s := range tt.Systems {
+
+					cksum := strings.Split(s.Checksum, ":")[1]
+					url_slc := strings.Split(s.URL, "/")
+					url := url_slc[len(url_slc)-1]
+
+					if smetrics.Jaro(s.Host, "x86_64-linux-gnu") > 0.9 {
+						fmt.Printf("-DLINUX64_BUNDLED_%s_ARCHIVE=%s ", toolStr, url)
+						fmt.Printf("-DLINUX64_BUNDLED_%s_SHA256=%s ", toolStr, cksum)
+					} else if smetrics.Jaro(s.Host, "i686-linux-gnu") > 0.9 {
+						fmt.Printf("-DLINUX32_BUNDLED_%s_ARCHIVE=%s ", toolStr, url)
+						fmt.Printf("-DLINUX32_BUNDLED_%s_SHA256=%s ", toolStr, cksum)
+					} else if smetrics.Jaro(s.Host, "arm-linux-gnueabihf") > 0.9 {
+						fmt.Printf("-DLINUXARM_BUNDLED_%s_ARCHIVE=%s ", toolStr, url)
+						fmt.Printf("-DLINUXARM_BUNDLED_%s_SHA256=%s ", toolStr, cksum)
+					} else if strings.Contains(s.Host, "apple-darwin") {
+						fmt.Printf("-DMACOSX_BUNDLED_%s_ARCHIVE=%s ", toolStr, url)
+						fmt.Printf("-DMACOSX_BUNDLED_%s_SHA256=%s ", toolStr, cksum)
+					} else if smetrics.Jaro(s.Host, "i686-mingw32") > 0.9 {
+						fmt.Printf("-DWINDOWS_BUNDLED_%s_ARCHIVE=%s ", toolStr, url)
+						fmt.Printf("-DWINDOWS_BUNDLED_%s_SHA256=%s ", toolStr, cksum)
+					}
 				}
 			}
 		}
-		log.Println("------------------")
 	}
+	fmt.Println()
 	os.Exit(0)
 }
