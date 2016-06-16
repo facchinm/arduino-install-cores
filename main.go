@@ -18,9 +18,9 @@ import (
 
 var (
 	url             = flag.String("url", "http://downloads.arduino.cc/packages/package_index.json", "The url of the file json containing the package index")
-	coreName        = flag.String("core", "avr", "The folder where to put the downloaded cores")
-	corePackager    = flag.String("packager", "arduino", "The folder where to put the downloaded tools")
-	generateAntRule = flag.Bool("ant", false, "The folder where to put the downloaded tools")
+	coreName        = flag.String("core", "avr", "The core name: avr, arc32, etc")
+	corePackager    = flag.String("packager", "arduino", "The packager name: arduino, Intel, etc")
+	generateAntRule = flag.Bool("ant", false, "Set to true if you want to generate a string to copy in build.xml")
 )
 
 type core struct {
